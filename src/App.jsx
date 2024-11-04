@@ -30,9 +30,23 @@ const DayTimeline = ({ date, activities }) => {
     return (hours / 24) * 100;
   };
 
-  const calculateWidth = (duration) => {
-    return (duration / (24 * 60)) * 100;
+  const calculateWidth = (activity) => {
+    let durationMinutes;
+
+    if (activity.duration != null) {
+      durationMinutes = activity.duration;
+    } else if (activity.startTime != null && activity.endTime != null) {
+      const start = new Date(activity.startTime);
+      const end = new Date(activity.endTime);
+      durationMinutes = (end - start) / 60000; // Convert milliseconds to minutes
+    } else {
+      console.error("Insufficient parameters provided to calculateWidth");
+      return 0;
+    }
+
+    return (durationMinutes / (24 * 60)) * 100;
   };
+
 
   return (
     <div className="mb-8">
@@ -61,10 +75,11 @@ const DayTimeline = ({ date, activities }) => {
       style={{
         backgroundColor: activity.color,
         left: `${calculatePosition(activity.startTime)}%`,
-                                   width: `${calculateWidth(activity.duration)}%`,
-                                   top: '4px'
+        width: `${calculateWidth(activity)}%`, // Pass the entire activity object
+        top: '4px'
       }}
       title={`${new Date(activity.startTime).toLocaleTimeString()}
+    End Time: ${new Date(activity.endTime).toLocaleTimeString()}
       Duration: ${activity.duration}min
       ${activity.comment}
       ${activity.launchPoint?.label || ''}`}
@@ -96,7 +111,8 @@ const TimelineTracker = () => {
   const [isAdding, setIsAdding] = useState(false);
   const [newActivity, setNewActivity] = useState({
     startTime: null,
-    duration: 30,
+    endTime: null,
+    duration: null,
     color: '#4A90E2',
     comment: '',
     launchPoint: null,
@@ -117,20 +133,23 @@ const TimelineTracker = () => {
     if (savedLaunchPoints) setLaunchPoints(JSON.parse(savedLaunchPoints));
 
     setIsInitialized(true); // Data has been loaded
-  }, []);
+  }, []); // Empty dependency array ensures this runs once on mount
 
-    // Save data to localStorage when it changes, after initialization
-    useEffect(() => {
-      if (isInitialized) {
-        localStorage.setItem('timelineActivities', JSON.stringify(activities));
-      }
-    }, [activities, isInitialized]);
+  // Save activities to localStorage when activities or isInitialized change
+  useEffect(() => {
+    if (isInitialized) {
+      localStorage.setItem('timelineActivities', JSON.stringify(activities));
+    }
+  }, [activities, isInitialized]);
 
-    useEffect(() => {
-      if (isInitialized) {
-        localStorage.setItem('timelineLaunchPoints', JSON.stringify(launchPoints));
-      }
-    }, [launchPoints, isInitialized]);
+  // Save launchPoints to localStorage when launchPoints or isInitialized change
+  useEffect(() => {
+    if (isInitialized) {
+      localStorage.setItem('timelineLaunchPoints', JSON.stringify(launchPoints));
+    }
+  }, [launchPoints, isInitialized]);
+
+
 
     const getDayActivities = (date) => {
       const dayStart = new Date(date);
@@ -144,24 +163,60 @@ const TimelineTracker = () => {
       });
     };
 
+
+
     const addActivity = () => {
-      if (newActivity.startTime) {
-        const datetime = `${newActivity.date}T${newActivity.startTime}`;
-        setActivities([...activities, {
-          ...newActivity,
-          id: Date.now(),
-                      startTime: datetime
-        }]);
-        setNewActivity({
-          startTime: null,
-          duration: 30,
-          color: '#4A90E2',
-          comment: '',
-          launchPoint: null,
-          date: new Date().toISOString().split('T')[0]
-        });
-        setIsAdding(false);
-      }
+      const { startTime, endTime, duration, date } = newActivity;
+
+      // Count how many time fields are filled
+      const filledFields = [startTime, endTime, duration].filter(val => val !== null && val !== '').length;
+
+      if (filledFields < 2) {
+          alert('Please fill at least two of the three fields: Start Time, End Time, Duration');
+          return;
+        }
+
+        let startDateTime, endDateTime, durationMinutes;
+
+        if (startTime) {
+            startDateTime = new Date(`${date}T${startTime}`);
+          }
+
+          if (endTime) {
+              endDateTime = new Date(`${date}T${endTime}`);
+            }
+
+            if (startTime && endTime) {
+                durationMinutes = (endDateTime - startDateTime) / 60000;
+              } else if (startTime && duration) {
+                  durationMinutes = duration;
+                  endDateTime = new Date(startDateTime.getTime() + duration * 60000);
+                } else if (endTime && duration) {
+                    durationMinutes = duration;
+                    startDateTime = new Date(endDateTime.getTime() - duration * 60000);
+                  } else {
+                      alert('Invalid input');
+                      return;
+                    }
+
+      // Create the new activity
+      setActivities([...activities, {
+        ...newActivity,
+        id: Date.now(),
+        startTime: startDateTime.toISOString(),
+        endTime: endDateTime.toISOString(),
+        duration: durationMinutes
+      }]);
+      setNewActivity({
+        startTime: null,
+        endTime: null,
+        duration: null,
+        color: '#4A90E2',
+        comment: '',
+        launchPoint: null,
+        date: new Date().toISOString().split('T')[0]
+      });
+      setIsAdding(false);
     };
 
     const exportData = () => {
@@ -283,6 +338,14 @@ const TimelineTracker = () => {
         value={newActivity.startTime || ''}
         onChange={(e) => setNewActivity({ ...newActivity, startTime: e.target.value })}
         className="border rounded px-2 py-1 text-sm"
+        placeholder="Start Time"
+        />
+        <input
+        type="time"
+        value={newActivity.endTime || ''}
+        onChange={(e) => setNewActivity({ ...newActivity, endTime: e.target.value })}
+        className="border rounded px-2 py-1 text-sm"
+        placeholder="End Time"
         />
         <input
         type="number"
